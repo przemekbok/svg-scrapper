@@ -1,4 +1,3 @@
-const axios = require('axios');
 const ppt = require('puppeteer');
 
 /**
@@ -22,7 +21,7 @@ var page;
 
 async function initializeBrowserAndPage() {
   browser = await ppt.launch({
-    headless: false,
+    headless: true,
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',
@@ -104,22 +103,34 @@ function LoadWholeGoogleImagePage() {
   });
 }
 
-async function goToYandexAndSearchForQuery(query) {
-  //go to yandex
-  await page.goto(`https://www.yandex.com/`);
+async function LoadWholeYandexImagePage() {
+  await page.evaluate(() => {
+    window.scrollBy(0, document.body.scrollHeight);
+  });
+  return new Promise((resolve) => setTimeout(resolve, 5000));
+}
 
-  //insert query into search bar and submit
+async function GoToYandex() {
+  await page.goto(`https://www.yandex.com/`);
+}
+
+async function PerformSearchForQuery(query) {
   await page.evaluate((query) => {
     document.querySelector('.input__control').value = `${query} svg`;
     document.querySelector('.button').click();
   }, query);
   await page.waitForNavigation();
+}
+
+async function SwitchToYandexImageSeach() {
   await page.evaluate(() => {
     window.location = document.querySelector(
       '.navigation__item_name_images > div > a'
     ).href;
   });
-  await page.waitForNavigation();
+  await page.waitForNavigation({
+    waitUntil: 'networkidle0',
+  });
 }
 
 var scrapperGoogleImage = () =>
@@ -163,7 +174,14 @@ async function performGoogleSearch(query, mode) {
 }
 
 async function performYandexSearch(query, mode) {
-  await goToWebpageAndSearchForQuery(query, goToYandexAndSearchForQuery);
+  await goToWebpageAndSearchForQuery(query, async (query) => {
+    await GoToYandex();
+    await PerformSearchForQuery(query);
+    await SwitchToYandexImageSeach();
+    if (mode === 'extensive') {
+      await LoadWholeYandexImagePage();
+    }
+  });
   let result = await scrapSVGLinksFromWebpage(scrapperYandexImage);
   return result;
 }
