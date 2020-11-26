@@ -22,7 +22,7 @@ var page;
 
 async function initializeBrowserAndPage() {
   browser = await ppt.launch({
-    headless: true,
+    headless: false,
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',
@@ -44,8 +44,7 @@ async function goToWebpageAndSearchForQuery(query, gotoFunc) {
   return await gotoFunc(query);
 }
 
-async function goToGoogleAndSearchForQuery(query) {
-  //go to google
+async function GoToGoogle() {
   await page.goto(`https://www.google.com/`);
 
   //submit to the terms of use
@@ -55,17 +54,54 @@ async function goToGoogleAndSearchForQuery(query) {
       .contentWindow.document.querySelector('#introAgreeButton')
       .click();
   });
-  //insert query into search bar and submit
+}
+
+async function PerformGoogleSearchForQuery(query) {
   await page.evaluate((query) => {
     document.querySelector('.gLFyf').value = `${query} svg`;
     document.querySelector('.gNO89b').click();
   }, query);
   await page.waitForNavigation();
+}
+
+async function SwitchToGoogleImageSeach() {
   await page.evaluate(() => {
     document.querySelector('.hdtb-imb > a').click();
   });
-  await page.waitForNavigation();
-  //TODO scroll to the bottom
+  await page.waitForNavigation({
+    waitUntil: 'networkidle0',
+  });
+}
+
+function LoadWholeGoogleImagePage() {
+  if (this.prevBodyHeight === undefined) {
+    this.prevBodyHeight = 0;
+  }
+  if (this.counter === undefined) {
+    this.counter = 0;
+  }
+  return new Promise(async (resolve, reject) => {
+    let bodyHeight = await page.evaluate(() => {
+      window.scrollTo(0, document.body.scrollHeight);
+      if (document.querySelector('.YstHxe').style.display !== 'none') {
+        document.querySelector('.YstHxe > input').click();
+      }
+      return document.body.scrollHeight;
+    });
+    if (bodyHeight === this.prevBodyHeight) {
+      this.counter++;
+    } else {
+      this.counter = 0;
+    }
+    if (counter < 4) {
+      setTimeout(async () => {
+        this.prevBodyHeight = bodyHeight;
+        resolve(await LoadWholeGoogleImagePage());
+      }, 1000);
+    } else {
+      resolve();
+    }
+  });
 }
 
 async function goToYandexAndSearchForQuery(query) {
@@ -113,82 +149,52 @@ async function scrapSVGLinksFromWebpage(scrapperFunc) {
   }
 }
 
-// THIS METHOD IS EXPIRED
-// async function scrapSVGLinksFromGoogle() {
-//   let result = await page.evaluate(() => {
-//     return [...document.querySelectorAll('.VFACy')]
-//       .filter((a) => a.href.match(/^.+(\/.+)\.svg$/))
-//       .map((a) => a.href);
-//   });
-//   if (result.length === 0) {
-//     return {
-//       type: 'Error',
-//       message: 'There is no svg images for this query',
-//       data: undefined,
-//     };
-//   } else {
-//     return { type: 'Success', message: undefined, data: result };
-//   }
-// }
-
-// outdated method that scrolls google search webpage
-async function getListOfSVGLinks(query, batches = 1) {
-  for (; batches > 0; batches--) {
-    let result = await page.evaluate(() => {
-      window.scrollTo(0, document.body.scrollHeight);
-      setTimeout(() => {
-        if (document.querySelector('.PdJCN').ariaHidden !== 'true') {
-          return { type: 'end' };
-        } else if (document.querySelector('.YstHxe').style.display !== 'none') {
-          document.querySelector('.YstHxe > input').click();
-        }
-        return { type: 'more' };
-      }, 4000);
-    });
-
-    console.log(result);
-    if (result.type === 'end') {
-      break;
+async function performGoogleSearch(query, mode) {
+  await goToWebpageAndSearchForQuery(query, async (query) => {
+    await GoToGoogle();
+    await PerformGoogleSearchForQuery(query);
+    await SwitchToGoogleImageSeach();
+    if (mode === 'extensive') {
+      await LoadWholeGoogleImagePage();
     }
-    let list = await scrapSVGLinksFromGoogle(query);
-    browser.close();
-    return list;
-  }
-}
-
-async function performGoogleSearch(query) {
-  await goToWebpageAndSearchForQuery(query, goToGoogleAndSearchForQuery);
+  });
   let result = await scrapSVGLinksFromWebpage(scrapperGoogleImage);
   return result;
 }
 
-async function performYandexSearch(query) {
+async function performYandexSearch(query, mode) {
   await goToWebpageAndSearchForQuery(query, goToYandexAndSearchForQuery);
   let result = await scrapSVGLinksFromWebpage(scrapperYandexImage);
   return result;
 }
 
-async function scrap(query, services = ['google', 'yandex']) {
+async function PerformScrapping(
+  query,
+  mode = 'quick',
+  services = ['google', 'yandex']
+) {
   await initializeBrowserAndPage();
   let results = [];
   try {
     if (services.indexOf('google') !== -1) {
-      let result = await performGoogleSearch(query).catch((error) => {
+      let result = await performGoogleSearch(query, mode).catch((error) => {
         //log error
+        console.log(error);
       });
       results = [...results, ...result.data];
     }
     if (services.indexOf('yandex') !== -1) {
-      let result = await performYandexSearch(query).catch((error) => {
+      let result = await performYandexSearch(query, mode).catch((error) => {
         //log error
+        console.log(error);
       });
       results = [...results, ...result.data];
     }
   } catch (err) {
-    results = scrap(query, services);
+    results = PerformScrapping(query, services);
   }
   await browser.close();
   return results;
 }
 
-scrap('react').then((result) => console.log(result));
+PerformScrapping('react', 'extensive').then((result) => console.log(result));
