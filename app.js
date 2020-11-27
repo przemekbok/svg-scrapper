@@ -6,8 +6,8 @@ const ppt = require('puppeteer');
  * that maches given query string.
  *
  * TODO:
- * 1. Parallel search
- * 2. Methods cleanup
+ * 1. Parallel search <done>
+ * 2. Methods cleanup <done>
  */
 
 async function initializeBrowserAndPage() {
@@ -24,15 +24,6 @@ async function initializeBrowserAndPage() {
     'Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:75.0) Gecko/20100101 Firefox/75.0'
   );
   return { browser, page };
-}
-
-async function goToWebpageAndSearchForQuery(query, gotoFunc) {
-  if (goToWebpageAndSearchForQuery.numberOfRedirectsOnPage === undefined) {
-    goToWebpageAndSearchForQuery.websitesTurnedOnPageCounter = 0;
-  } else {
-    await page.waitForNavigation();
-  }
-  return await gotoFunc(query);
 }
 
 async function GoToGoogle(page) {
@@ -125,12 +116,12 @@ async function SwitchToYandexImageSeach(page) {
   });
 }
 
-var scrapperGoogleImage = () =>
+var SVGScrapperGoogleImage = () =>
   [...document.querySelectorAll('.VFACy')]
     .filter((a) => a.href.match(/^.+(\/.+)\.svg$/))
     .map((a) => a.href);
 
-var scrapperYandexImage = () =>
+var SVGScrapperYandexImage = () =>
   [...document.querySelectorAll('.serp-item > div > a')]
     .map((a) => a.href.match(/(?<=&img_url=)(.*)(?=&)/g)[0])
     .map((url) => decodeURIComponent(url))
@@ -152,36 +143,34 @@ async function scrapSVGLinksFromWebpage(page, scrapperFunc) {
   }
 }
 
-async function performGoogleSearch(page, query, mode) {
-  await goToWebpageAndSearchForQuery(query, async (query) => {
-    await GoToGoogle(page);
-    await PerformGoogleSearchForQuery(page, query);
-    await SwitchToGoogleImageSeach(page);
+async function performSearch(browserPage, service, query, mode) {
+  let scrapper;
+  if (service === 'google') {
+    await GoToGoogle(browserPage);
+    await PerformGoogleSearchForQuery(browserPage, query);
+    await SwitchToGoogleImageSeach(browserPage);
     if (mode === 'extensive') {
-      await LoadWholeGoogleImagePage(page);
+      await LoadWholeGoogleImagePage(browserPage);
     }
-  });
-  let result = await scrapSVGLinksFromWebpage(page, scrapperGoogleImage);
+    scrapper = SVGScrapperGoogleImage;
+  } else if (service === 'yandex') {
+    await GoToYandex(browserPage);
+    await PerformSearchForQuery(browserPage, query);
+    await SwitchToYandexImageSeach(browserPage);
+    if (mode === 'extensive') {
+      await LoadWholeYandexImagePage(browserPage);
+    }
+    scrapper = SVGScrapperYandexImage;
+  }
+
+  let result = await scrapSVGLinksFromWebpage(browserPage, scrapper);
   return result;
 }
 
-async function performYandexSearch(page, query, mode) {
-  await goToWebpageAndSearchForQuery(query, async (query) => {
-    await GoToYandex(page);
-    await PerformSearchForQuery(page, query);
-    await SwitchToYandexImageSeach(page);
-    if (mode === 'extensive') {
-      await LoadWholeYandexImagePage(page);
-    }
-  });
-  let result = await scrapSVGLinksFromWebpage(page, scrapperYandexImage);
-  return result;
-}
-
-async function ScrapFrom(service) {
+async function ScrapFrom(service, query, mode) {
   return new Promise(async (resolve, reject) => {
     const { browser, page } = await initializeBrowserAndPage();
-    let result = await performGoogleSearch(page, query, mode);
+    let result = await performSearch(page, service, query, mode);
     await browser.close();
     resolve(result.data);
   }).catch(async (err) => {
@@ -196,32 +185,9 @@ async function PerformScrapping(
   mode = 'quick',
   services = ['google', 'yandex']
 ) {
-  let results = await Promise.all([
-    new Promise(async (resolve, reject) => {
-      if (services.indexOf('google') !== -1) {
-        const { browser, page } = await initializeBrowserAndPage();
-        let result = await performGoogleSearch(page, query, mode);
-        await browser.close();
-        resolve(result.data);
-      }
-    }).catch(async (err) => {
-      //log error
-      await browser.close();
-      return [];
-    }),
-    new Promise(async (resolve, reject) => {
-      if (services.indexOf('yandex') !== -1) {
-        const { browser, page } = await initializeBrowserAndPage();
-        let result = await performYandexSearch(page, query, mode);
-        await browser.close();
-        resolve(result.data);
-      }
-    }).catch(async (err) => {
-      //log error
-      await browser.close();
-      return [];
-    }),
-  ]).catch((err) => PerformScrapping(query, services));
+  let results = await Promise.all(
+    services.map((service) => ScrapFrom(service, query, mode))
+  ).catch((err) => PerformScrapping(query, services));
   results = [].concat(...results);
   return results;
 }
