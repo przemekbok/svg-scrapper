@@ -6,32 +6,24 @@ const ppt = require('puppeteer');
  * that maches given query string.
  *
  * TODO:
- * 1. Think about using typescript for that application.
- * 2. create a method that accepts string as param
- * 3. Go to google with puppeteer and search for given query
- * 4. Evaluate js query for tags with url
- * 5. Return all url as array
- * 5. Parse and decode urls in array
- * 6. Return arrays of parsed links
- * 7. Create function for browsing many pages with number of pages parameter
+ * 1. Parallel search
+ * 2. Methods cleanup
  */
 
-var browser;
-var page;
-
 async function initializeBrowserAndPage() {
-  browser = await ppt.launch({
-    headless: true,
+  let browser = await ppt.launch({
+    headless: false,
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',
       '--disable-web-security',
     ],
   });
-  page = await browser.newPage();
+  let page = await browser.newPage();
   await page.setUserAgent(
     'Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:75.0) Gecko/20100101 Firefox/75.0'
   );
+  return { browser, page };
 }
 
 async function goToWebpageAndSearchForQuery(query, gotoFunc) {
@@ -43,7 +35,7 @@ async function goToWebpageAndSearchForQuery(query, gotoFunc) {
   return await gotoFunc(query);
 }
 
-async function GoToGoogle() {
+async function GoToGoogle(page) {
   await page.goto(`https://www.google.com/`);
 
   //submit to the terms of use
@@ -55,7 +47,7 @@ async function GoToGoogle() {
   });
 }
 
-async function PerformGoogleSearchForQuery(query) {
+async function PerformGoogleSearchForQuery(page, query) {
   await page.evaluate((query) => {
     document.querySelector('.gLFyf').value = `${query} svg`;
     document.querySelector('.gNO89b').click();
@@ -63,7 +55,7 @@ async function PerformGoogleSearchForQuery(query) {
   await page.waitForNavigation();
 }
 
-async function SwitchToGoogleImageSeach() {
+async function SwitchToGoogleImageSeach(page) {
   await page.evaluate(() => {
     document.querySelector('.hdtb-imb > a').click();
   });
@@ -72,7 +64,7 @@ async function SwitchToGoogleImageSeach() {
   });
 }
 
-function LoadWholeGoogleImagePage() {
+function LoadWholeGoogleImagePage(page) {
   if (this.prevBodyHeight === undefined) {
     this.prevBodyHeight = 0;
   }
@@ -95,7 +87,7 @@ function LoadWholeGoogleImagePage() {
     if (counter < 4) {
       setTimeout(async () => {
         this.prevBodyHeight = bodyHeight;
-        resolve(await LoadWholeGoogleImagePage());
+        resolve(await LoadWholeGoogleImagePage(page));
       }, 1000);
     } else {
       resolve();
@@ -103,18 +95,18 @@ function LoadWholeGoogleImagePage() {
   });
 }
 
-async function LoadWholeYandexImagePage() {
+async function LoadWholeYandexImagePage(page) {
   await page.evaluate(() => {
     window.scrollBy(0, document.body.scrollHeight);
   });
   return new Promise((resolve) => setTimeout(resolve, 5000));
 }
 
-async function GoToYandex() {
+async function GoToYandex(page) {
   await page.goto(`https://www.yandex.com/`);
 }
 
-async function PerformSearchForQuery(query) {
+async function PerformSearchForQuery(page, query) {
   await page.evaluate((query) => {
     document.querySelector('.input__control').value = `${query} svg`;
     document.querySelector('.button').click();
@@ -122,7 +114,7 @@ async function PerformSearchForQuery(query) {
   await page.waitForNavigation();
 }
 
-async function SwitchToYandexImageSeach() {
+async function SwitchToYandexImageSeach(page) {
   await page.evaluate(() => {
     window.location = document.querySelector(
       '.navigation__item_name_images > div > a'
@@ -145,7 +137,7 @@ var scrapperYandexImage = () =>
     .map((durl) => durl.match(/^[^&]*/g)[0])
     .filter((link) => /.*.svg$/g.test(link));
 
-async function scrapSVGLinksFromWebpage(scrapperFunc) {
+async function scrapSVGLinksFromWebpage(page, scrapperFunc) {
   let result = await page.evaluate((scrapperFunc) => {
     return eval(scrapperFunc)();
   }, scrapperFunc.toString());
@@ -160,30 +152,43 @@ async function scrapSVGLinksFromWebpage(scrapperFunc) {
   }
 }
 
-async function performGoogleSearch(query, mode) {
+async function performGoogleSearch(page, query, mode) {
   await goToWebpageAndSearchForQuery(query, async (query) => {
-    await GoToGoogle();
-    await PerformGoogleSearchForQuery(query);
-    await SwitchToGoogleImageSeach();
+    await GoToGoogle(page);
+    await PerformGoogleSearchForQuery(page, query);
+    await SwitchToGoogleImageSeach(page);
     if (mode === 'extensive') {
-      await LoadWholeGoogleImagePage();
+      await LoadWholeGoogleImagePage(page);
     }
   });
-  let result = await scrapSVGLinksFromWebpage(scrapperGoogleImage);
+  let result = await scrapSVGLinksFromWebpage(page, scrapperGoogleImage);
   return result;
 }
 
-async function performYandexSearch(query, mode) {
+async function performYandexSearch(page, query, mode) {
   await goToWebpageAndSearchForQuery(query, async (query) => {
-    await GoToYandex();
-    await PerformSearchForQuery(query);
-    await SwitchToYandexImageSeach();
+    await GoToYandex(page);
+    await PerformSearchForQuery(page, query);
+    await SwitchToYandexImageSeach(page);
     if (mode === 'extensive') {
-      await LoadWholeYandexImagePage();
+      await LoadWholeYandexImagePage(page);
     }
   });
-  let result = await scrapSVGLinksFromWebpage(scrapperYandexImage);
+  let result = await scrapSVGLinksFromWebpage(page, scrapperYandexImage);
   return result;
+}
+
+async function ScrapFrom(service) {
+  return new Promise(async (resolve, reject) => {
+    const { browser, page } = await initializeBrowserAndPage();
+    let result = await performGoogleSearch(page, query, mode);
+    await browser.close();
+    resolve(result.data);
+  }).catch(async (err) => {
+    //log error
+    await browser.close();
+    return [];
+  });
 }
 
 async function PerformScrapping(
@@ -191,27 +196,33 @@ async function PerformScrapping(
   mode = 'quick',
   services = ['google', 'yandex']
 ) {
-  await initializeBrowserAndPage();
-  let results = [];
-  try {
-    if (services.indexOf('google') !== -1) {
-      let result = await performGoogleSearch(query, mode).catch((error) => {
-        //log error
-        console.log(error);
-      });
-      results = [...results, ...result.data];
-    }
-    if (services.indexOf('yandex') !== -1) {
-      let result = await performYandexSearch(query, mode).catch((error) => {
-        //log error
-        console.log(error);
-      });
-      results = [...results, ...result.data];
-    }
-  } catch (err) {
-    results = PerformScrapping(query, services);
-  }
-  await browser.close();
+  let results = await Promise.all([
+    new Promise(async (resolve, reject) => {
+      if (services.indexOf('google') !== -1) {
+        const { browser, page } = await initializeBrowserAndPage();
+        let result = await performGoogleSearch(page, query, mode);
+        await browser.close();
+        resolve(result.data);
+      }
+    }).catch(async (err) => {
+      //log error
+      await browser.close();
+      return [];
+    }),
+    new Promise(async (resolve, reject) => {
+      if (services.indexOf('yandex') !== -1) {
+        const { browser, page } = await initializeBrowserAndPage();
+        let result = await performYandexSearch(page, query, mode);
+        await browser.close();
+        resolve(result.data);
+      }
+    }).catch(async (err) => {
+      //log error
+      await browser.close();
+      return [];
+    }),
+  ]).catch((err) => PerformScrapping(query, services));
+  results = [].concat(...results);
   return results;
 }
 
