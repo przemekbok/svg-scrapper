@@ -6,8 +6,17 @@ const ppt = require('puppeteer');
  * that maches given query string.
  *
  * TODO:
- * 1. Parallel search <done>
- * 2. Methods cleanup <done>
+ * 1. Filter output <done>
+ * 2. Wait longer for yandex load
+ * 3. React icon repo scrap
+ *  3.1 Way of choosing icon
+ *  3.2 Scrapping or getting it as eval()
+ * 4. Saving result to json file, and searching answers in it
+ *  4.1 choose direcotry for json file
+ *  4.2 read file if exist, if not create it
+ *  4.3 create object from query and result and expand existing json
+ *  4.4 save result
+ *  4.5 make function for checking json before scrapping (or Promise.race it )
  */
 
 async function initializeBrowserAndPage() {
@@ -90,7 +99,7 @@ async function LoadWholeYandexImagePage(page) {
   await page.evaluate(() => {
     window.scrollBy(0, document.body.scrollHeight);
   });
-  return new Promise((resolve) => setTimeout(resolve, 5000));
+  return new Promise((resolve) => setTimeout(resolve, 10000));
 }
 
 async function GoToYandex(page) {
@@ -170,13 +179,19 @@ async function performSearch(browserPage, service, query, mode) {
 async function ScrapFrom(service, query, mode) {
   return new Promise(async (resolve, reject) => {
     const { browser, page } = await initializeBrowserAndPage();
-    let result = await performSearch(page, service, query, mode);
-    await browser.close();
-    resolve(result.data);
-  }).catch(async (err) => {
-    //log error
-    await browser.close();
-    return [];
+    try {
+      let result = await performSearch(page, service, query, mode);
+      await browser.close();
+      resolve(result.data);
+    } catch (err) {
+      console.log(
+        `${service} scrapping error\nMessage:`,
+        err.message,
+        `\nExplanation: error could ocure due to ${service} automate request protection, please try once again if the same error occurs please use proxy`
+      );
+      await browser.close();
+      resolve([]);
+    }
   });
 }
 
@@ -189,7 +204,11 @@ async function PerformScrapping(
     services.map((service) => ScrapFrom(service, query, mode))
   ).catch((err) => PerformScrapping(query, services));
   results = [].concat(...results);
-  return results;
+  return results.filter(
+    (value, index, source) => source.indexOf(value) === index
+  );
 }
 
-PerformScrapping('react', 'extensive').then((result) => console.log(result));
+PerformScrapping('angular framework', 'extensive').then((result) =>
+  console.log(result)
+);
