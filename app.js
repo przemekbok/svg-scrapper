@@ -1,4 +1,4 @@
-const ppt = require('puppeteer');
+const puppeteer = require('puppeteer');
 
 /**
  * This is a module responsible for getting svg images from google search. Main goal is to return
@@ -7,12 +7,13 @@ const ppt = require('puppeteer');
  *
  * TODO:
  * 1. Filter output <done>
- * 2. Wait longer for yandex load
+ * 2. Wait longer for yandex load <done>
+ * 2.5 Main method returns logs and result <done>
  * 3. React icon repo scrap
  *  3.1 Way of choosing icon
  *  3.2 Scrapping or getting it as eval()
  * 4. Saving result to json file, and searching answers in it
- *  4.1 choose direcotry for json file
+ *  4.1 choose direcotry for json file --> /var/tmp:Linux
  *  4.2 read file if exist, if not create it
  *  4.3 create object from query and result and expand existing json
  *  4.4 save result
@@ -20,7 +21,7 @@ const ppt = require('puppeteer');
  */
 
 async function initializeBrowserAndPage() {
-  let browser = await ppt.launch({
+  let browser = await puppeteer.launch({
     headless: false,
     args: [
       '--no-sandbox',
@@ -145,10 +146,16 @@ async function scrapSVGLinksFromWebpage(page, scrapperFunc) {
     return {
       type: 'Error',
       message: 'There is no svg images for this query',
-      data: undefined,
+      explanation: undefined,
+      data: [],
     };
   } else {
-    return { type: 'Success', message: undefined, data: result };
+    return {
+      type: 'Success',
+      message: undefined,
+      explanation: undefined,
+      data: result,
+    };
   }
 }
 
@@ -182,15 +189,16 @@ async function ScrapFrom(service, query, mode) {
     try {
       let result = await performSearch(page, service, query, mode);
       await browser.close();
-      resolve(result.data);
+      resolve(result);
     } catch (err) {
-      console.log(
-        `${service} scrapping error\nMessage:`,
-        err.message,
-        `\nExplanation: error could ocure due to ${service} automate request protection, please try once again if the same error occurs please use proxy`
-      );
       await browser.close();
-      resolve([]);
+      resolve({
+        type: 'Error',
+        message: `${service} scrapping error`,
+        explanation:
+          'error could ocure due to ${service} automate request protection, please try once again if the same error occurs please use proxy',
+        data: [],
+      });
     }
   });
 }
@@ -201,14 +209,25 @@ async function PerformScrapping(
   services = ['google', 'yandex']
 ) {
   let results = await Promise.all(
-    services.map((service) => ScrapFrom(service, query, mode))
-  ).catch((err) => PerformScrapping(query, services));
-  results = [].concat(...results);
-  return results.filter(
-    (value, index, source) => source.indexOf(value) === index
+    services.map(async (service) => {
+      let res = await ScrapFrom(service, query, mode);
+      let log = {};
+      if (res.type === 'Error') {
+        let dateForLog = new Date().toLocaleString();
+        log[
+          dateForLog
+        ] = `${filler}\nMessage: ${res.message}\nExplanation: ${res.explanation}`;
+      }
+      return { log, data: res.data };
+    })
   );
+  let data = []
+    .concat(...results.map((res) => res.data))
+    .filter((value, index, source) => source.indexOf(value) === index);
+  let logs = results
+    .map((res) => res.log)
+    .filter((log) => Object.keys(log).length !== 0);
+  return { logs, data };
 }
 
-PerformScrapping('angular framework', 'extensive').then((result) =>
-  console.log(result)
-);
+PerformScrapping('react', 'extensive').then((result) => console.log(result));
