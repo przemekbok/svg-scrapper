@@ -4,7 +4,7 @@ It's a simple standalone script for scrapping svg from popular search engines. R
 
 ### Why I created this ?
 
-Recently I attended [10Clouds hackaton](https://10clouds.com/blog/codeability-hackathon-projects). My backup plan was to create a roadmaps enchancer ( for roadmap [like this one]()) to make them accesible for disabled people. To speedup future development I created this simple tool. It's goal was to provide svg image/icon for every category on a map.
+Recently I attended [10Clouds hackaton](https://10clouds.com/blog/codeability-hackathon-projects). My backup plan was to create a [roadmaps](https://github.com/orsanawwad/awesome-roadmaps) enchancer to make them accesible for disabled people. To speedup future development I created this simple tool. It's goal was to provide svg image/icon for every category on a map.
 
 ### Roadmap
 
